@@ -1,22 +1,26 @@
 # embeddings.py
 import openai
-import os
+import streamlit as st
 from typing import List
 
-# Configure AIMLAPI (OpenAI-compatible)
+# No need for environment variables or load_dotenv
+# We rely on st.secrets for the key
+
 openai.api_base = "https://api.aimlapi.com/v1"
-openai.api_key = os.getenv("AIMLAPI_KEY")  # Or set directly below
 
 def get_embeddings(chunks: List[str], model: str = "embedding-4o-latest"):
     """
-    Convert a list of text chunks into vectors using an embedding model from AIMLAPI.
+    Convert text chunks into vectors using an embedding model on AIMLAPI.
     """
-    if len(chunks) == 0:
+    if not chunks:
         return []
+
+    # Retrieve key from Streamlit secrets
+    openai.api_key = st.secrets["AIMLAPI_KEY"]
+
     response = openai.Embedding.create(
         model=model,
         input=chunks
     )
-    # Each item in response['data'] has an "embedding" field
     vectors = [item["embedding"] for item in response["data"]]
     return vectors
