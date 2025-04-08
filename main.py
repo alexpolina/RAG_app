@@ -14,7 +14,7 @@ st.title("RAG System for Corvinus university")
 st.write("""
 1. Upload a PDF
 2. Ask a question about its content
-3. We'll retrieve relevant chunks and use an AIMLAPI model to generate a final answer.
+3. We'll help you to find an answer according uploaded material.
 """)
 
 # Session-level vector store
