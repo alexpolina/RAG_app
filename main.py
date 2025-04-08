@@ -8,7 +8,7 @@ from embeddings import get_embeddings
 from vector_store import VectorStore
 
 openai.api_base = "https://api.aimlapi.com/v1"
-# We will set openai.api_key from st.secrets in each relevant call
+# We will set openai.api_key from st.secrets when needed
 
 st.title("RAG System with AIMLAPI + Streamlit Secrets")
 st.write("""
@@ -17,6 +17,7 @@ st.write("""
 3. We'll retrieve relevant chunks and use an AIMLAPI model to generate a final answer.
 """)
 
+# Session-level vector store
 if "vector_store" not in st.session_state:
     st.session_state["vector_store"] = None
 
@@ -25,7 +26,7 @@ uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 if uploaded_file:
     pdf_bytes = uploaded_file.read()
     st.info("Extracting text from PDF...")
-    pdf_text = load_pdf_text_from_memory(pdf_bytes)
+    pdf_text = load_pdf_text_from_memory(pdf_bytes)  # ✅ fixed function
 
     chunks = chunk_text(pdf_text)
     st.info(f"PDF split into {len(chunks)} chunks...")
@@ -35,7 +36,7 @@ if uploaded_file:
     vectors_np = np.array(vectors, dtype=np.float32)
 
     if len(vectors) > 0:
-        dim = vectors_np.shape[1]  # e.g., 1536
+        dim = vectors_np.shape[1]
         vs = VectorStore(dim)
         vs.add_embeddings(vectors_np, chunks)
         st.session_state["vector_store"] = vs
@@ -47,7 +48,6 @@ if uploaded_file:
 question = st.text_input("Ask a question about this PDF:")
 
 if question and st.session_state["vector_store"] is not None:
-    # Retrieve top chunks
     question_vec = get_embeddings([question], model="embedding-4o-latest")
     question_vec_np = np.array(question_vec, dtype=np.float32)
 
@@ -62,7 +62,6 @@ if question and st.session_state["vector_store"] is not None:
     """
 
     st.info("Generating final answer from AIMLAPI...")
-    # Get your key from secrets right before calling ChatCompletion
     openai.api_key = st.secrets["AIMLAPI_KEY"]
 
     with st.spinner("Thinking..."):
@@ -77,8 +76,7 @@ if question and st.session_state["vector_store"] is not None:
     answer = response.choices[0].message.content
     st.markdown(f"**Answer:** {answer}")
 
-    # Optional: Show top chunks
     with st.expander("Top Relevant Chunks"):
         for i, (chunk, dist) in enumerate(results):
             st.write(f"**Rank {i+1}** - Distance: {dist:.2f}")
-            st.write(chunk[:300] + "...")  # Show first 300 chars
+            st.write(chunk[:300] + "...")
