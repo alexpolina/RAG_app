@@ -10,7 +10,7 @@ from vector_store import VectorStore
 openai.api_base = "https://api.aimlapi.com/v1"
 # We will set openai.api_key from st.secrets when needed
 
-st.title("RAG System with AIMLAPI + Streamlit Secrets")
+st.title("RAG System for Corvinus university")
 st.write("""
 1. Upload a PDF
 2. Ask a question about its content
