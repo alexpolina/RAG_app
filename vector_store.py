@@ -4,7 +4,6 @@ import numpy as np
 
 class VectorStore:
     def __init__(self, dimension: int):
-        # dimension must match embedding dimension from your model
         self.index = faiss.IndexFlatL2(dimension)
         self.chunks = []
 
@@ -14,8 +13,13 @@ class VectorStore:
 
     def search(self, query_vector: np.ndarray, k: int = 5):
         """
-        Return the top-k similar chunks based on L2 distance
+        Return top-k matches with (chunk, distance).
         """
         distances, indices = self.index.search(query_vector, k)
-        # Return chunk strings for top results
-        return [(self.chunks[i], distances[0][idx]) for idx, i in enumerate(indices[0])]
+        results = []
+        for i in range(k):
+            chunk_idx = indices[0, i]
+            distance = distances[0, i]
+            if 0 <= chunk_idx < len(self.chunks):
+                results.append((self.chunks[chunk_idx], distance))
+        return results
