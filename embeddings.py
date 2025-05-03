@@ -7,7 +7,6 @@ from typing import List
 def get_embeddings(chunks: List[str], model: str = "text-embedding-ada-002") -> List[List[float]]:
     """
     Convert text chunks into embedding vectors using AIMLAPI's embedding endpoint.
-    Uses a supported model name: text-embedding-ada-002.
     """
     if not chunks:
         return []
@@ -24,5 +23,5 @@ def get_embeddings(chunks: List[str], model: str = "text-embedding-ada-002") -> 
         input=chunks,
     )
 
-    # Return list of embedding vectors
-    return [item["embedding"] for item in response.data]
+    # response.data is a list of Embedding objects with .embedding attribute
+    return [item.embedding for item in response.data]
