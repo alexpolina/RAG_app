@@ -1,5 +1,12 @@
 # main.py
 
+import logging
+# Suppress Streamlit watcher and transformers warnings
+logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
+
+from transformers import logging as tf_logging
+tf_logging.set_verbosity_error()
+
 import streamlit as st
 import numpy as np
 
