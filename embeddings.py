@@ -1,11 +1,8 @@
 # embeddings.py
 
-import openai
 import streamlit as st
+from openai import OpenAI
 from typing import List
-
-# Point at the AIMLAPI base URL (OpenAI-compatible)
-openai.api_base = "https://api.aimlapi.com/v1"
 
 def get_embeddings(chunks: List[str], model: str = "embedding-4o-latest") -> List[List[float]]:
     """
@@ -14,13 +11,16 @@ def get_embeddings(chunks: List[str], model: str = "embedding-4o-latest") -> Lis
     if not chunks:
         return []
 
-    # Pull your key from the secret named "TEXT_API_KEY"
-    openai.api_key = st.secrets["TEXT_API_KEY"]
-
-    # Use the v1.0+ interface for embeddings
-    response = openai.embeddings.create(
-        model=model,
-        input=chunks
+    # Create a fresh client for embeddings
+    client = OpenAI(
+        base_url="https://api.aimlapi.com/v1",
+        api_key=st.secrets["TEXT_API_KEY"],
     )
 
-    return [item["embedding"] for item in response["data"]]
+    response = client.embeddings.create(
+        model=model,
+        input=chunks,
+    )
+
+    # `response.data` is a list of objects with .embedding
+    return [item["embedding"] for item in response.data]
