@@ -1,3 +1,5 @@
+# main.py
+
 import streamlit as st
 import numpy as np
 from openai import OpenAI
@@ -6,17 +8,12 @@ from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 1) Configure AIMLAPI client using Streamlit Secrets
-# ────────────────────────────────────────────────────────────────────────────────
+# Configure AIMLAPI client once
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
     api_key=st.secrets["TEXT_API_KEY"],
 )
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 2) UI: Title & Instructions
-# ────────────────────────────────────────────────────────────────────────────────
 st.title("RAG System for Corvinus University")
 st.write("""
 1. Upload a PDF  
@@ -24,26 +21,24 @@ st.write("""
 3. We'll help you find an answer based on the uploaded material.
 """)
 
-# Initialize vector store in session state
+# Initialize vector store in session
 if "vector_store" not in st.session_state:
     st.session_state["vector_store"] = None
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 3) Step 1: Upload & Index PDF
-# ────────────────────────────────────────────────────────────────────────────────
+# Step 1: Upload and index PDF
 uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 if uploaded_file:
     pdf_bytes = uploaded_file.read()
     st.info("Extracting text from PDF…")
     pdf_text = load_pdf_text_from_memory(pdf_bytes)
 
-    st.info(f"Splitting into chunks…")
+    st.info("Splitting into chunks…")
     chunks = chunk_text(pdf_text)
     st.info(f"PDF split into {len(chunks)} chunks")
 
     st.info("Generating embeddings…")
-    # uses updated embeddings.py
-    vectors = get_embeddings(chunks, model="embedding-4o-latest")
+    # Use the valid embedding model name here
+    vectors = get_embeddings(chunks, model="text-embedding-ada-002")
     vectors_np = np.array(vectors, dtype=np.float32)
 
     if len(vectors) > 0:
@@ -55,20 +50,18 @@ if uploaded_file:
     else:
         st.warning("No embeddings created — check PDF content.")
 
-# ────────────────────────────────────────────────────────────────────────────────
-# 4) Step 2: Question & Retrieval
-# ────────────────────────────────────────────────────────────────────────────────
+# Step 2: Ask question & generate answer
 question = st.text_input("Ask a question about this PDF:")
 if question and st.session_state["vector_store"] is not None:
-    # a) Embed the question
-    question_vec = get_embeddings([question], model="embedding-4o-latest")
+    # Embed the question using the same model
+    question_vec = get_embeddings([question], model="text-embedding-ada-002")
     question_vec_np = np.array(question_vec, dtype=np.float32)
 
-    # b) Retrieve top-k chunks
+    # Retrieve top-k chunks
     results = st.session_state["vector_store"].search(question_vec_np, k=5)
     context_text = "\n\n".join([chunk for chunk, _ in results])
 
-    # c) Build the prompt
+    # Build prompt
     prompt = f"""
 You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
 
@@ -93,7 +86,7 @@ QUESTION:
     answer = response.choices[0].message.content
     st.markdown(f"**Answer:** {answer}")
 
-    # d) Show which chunks were used
+    # Show which chunks were used
     with st.expander("Top Relevant Chunks"):
         for idx, (chunk, dist) in enumerate(results, start=1):
             st.write(f"**Rank {idx}** (distance {dist:.2f})")
