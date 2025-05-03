@@ -4,3 +4,4 @@ numpy
 pypdf
 openai
 sentence-transformers
+transformers
