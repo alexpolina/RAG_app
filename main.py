@@ -10,13 +10,17 @@ from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
-# ─── Configure AIMLAPI client using Streamlit Secrets ────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Configure the AIMLAPI client using your Streamlit secret
+# ────────────────────────────────────────────────────────────────────────────────
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
     api_key=st.secrets["TEXT_API_KEY"],
 )
 
-# ─── UI: Title & Instructions ────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# UI: Title & Instructions
+# ────────────────────────────────────────────────────────────────────────────────
 st.title("RAG System for Corvinus University")
 st.write("""
 1. Upload a PDF  
@@ -24,11 +28,13 @@ st.write("""
 3. We'll help you find an answer based on the uploaded material.
 """)
 
-# Initialize vector store in session
+# Initialize (or retrieve) the vector store in Streamlit's session state
 if "vector_store" not in st.session_state:
     st.session_state["vector_store"] = None
 
-# ─── Step 1: Upload & Index PDF ───────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Step 1: Upload & Index PDF
+# ────────────────────────────────────────────────────────────────────────────────
 uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 if uploaded_file:
     pdf_bytes = uploaded_file.read()
@@ -50,21 +56,22 @@ if uploaded_file:
         st.session_state["vector_store"] = vs
         st.success("Embedding & indexing complete!")
     else:
-        st.warning("No embeddings created — check PDF content.")
+        st.warning("No embeddings created — please check that the PDF contains readable text.")
 
-# ─── Step 2: Ask a Question & Retrieve Answer ────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Step 2: Ask a Question & Retrieve Answer
+# ────────────────────────────────────────────────────────────────────────────────
 question = st.text_input("Ask a question about this PDF:")
 if question and st.session_state["vector_store"]:
-
-    # Embed the question
+    # a) Embed the question
     question_vec = get_embeddings([question], model="text-embedding-ada-002")
     question_vec_np = np.array(question_vec, dtype=np.float32)
 
-    # Retrieve top-k chunks
+    # b) Retrieve the top-k most relevant chunks
     results = st.session_state["vector_store"].search(question_vec_np, k=5)
-    context_text = "\n\n".join([chunk for chunk, _ in results])
+    context_text = "\n\n".join(chunk for chunk, _ in results)
 
-    # Build the prompt
+    # c) Build the prompt for the LLM
     prompt = f"""
 You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
 
@@ -74,10 +81,11 @@ CONTEXT:
 QUESTION:
 {question}
 """
+
     st.info("Generating final answer…")
 
     try:
-        # Primary: AIMLAPI chat completions
+        # Primary: call AIMLAPI's chat completion
         response = client.chat.completions.create(
             model="openai/o4-mini-2025-04-16",
             messages=[
@@ -89,19 +97,23 @@ QUESTION:
         answer = response.choices[0].message.content
 
     except PermissionDeniedError:
-        # Fallback: Local model via transformers
+        # Fallback: local generation with distilgpt2
         st.warning("AIMLAPI quota exceeded; falling back to local model (distilgpt2).")
         gen = pipeline("text-generation", model="distilgpt2")
-        # Short prompt for generation
-        fallback_input = context_text + "\nQ: " + question + "\nA:"
-        out = gen(fallback_input, max_length=len(fallback_input.split()) + 50, do_sample=False)
-        # The pipeline returns the full text; strip prompt
-        answer = out[0]["generated_text"][len(fallback_input):].strip()
+        fallback_input = f"Context:\n{context_text}\n\nQ: {question}\nA:"
+        out = gen(
+            fallback_input,
+            max_new_tokens=50,
+            truncation=True,
+            do_sample=False
+        )
+        generated = out[0]["generated_text"]
+        answer = generated[len(fallback_input):].strip()
 
-    # Display answer
+    # d) Display the answer
     st.markdown(f"**Answer:** {answer}")
 
-    # Show which chunks were used
+    # e) Show which chunks were used
     with st.expander("Top Relevant Chunks"):
         for idx, (chunk, dist) in enumerate(results, start=1):
             st.write(f"**Rank {idx}** (distance {dist:.2f})")
