@@ -3,3 +3,4 @@ faiss-cpu
 numpy
 pypdf
 openai
+sentence-transformers
