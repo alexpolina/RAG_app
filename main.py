@@ -1,4 +1,5 @@
 # main.py
+
 import streamlit as st
 import numpy as np
 import openai
@@ -7,31 +8,40 @@ from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
+# —————————————————————————————————————————————————————————————
+# 1) Configure AIMLAPI + Streamlit Secret
+# —————————————————————————————————————————————————————————————
 openai.api_base = "https://api.aimlapi.com/v1"
-# We will set openai.api_key from st.secrets when needed
+openai.api_key = st.secrets["TEXT_API_KEY"]   # ← your secret in Streamlit
 
-st.title("RAG System for Corvinus university")
+# —————————————————————————————————————————————————————————————
+# 2) UI: Title & Instructions
+# —————————————————————————————————————————————————————————————
+st.title("RAG System for Corvinus University")
 st.write("""
-1. Upload a PDF
-2. Ask a question about its content
-3. We'll help you to find an answer according uploaded material.
+1. Upload a PDF  
+2. Ask a question about its content  
+3. We'll help you find an answer based on the uploaded material.
 """)
 
-# Session-level vector store
+# Initialize the vector store in session state
 if "vector_store" not in st.session_state:
     st.session_state["vector_store"] = None
 
-# Step 1: Upload PDF
+# —————————————————————————————————————————————————————————————
+# 3) Step 1: Upload & Index PDF
+# —————————————————————————————————————————————————————————————
 uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 if uploaded_file:
     pdf_bytes = uploaded_file.read()
-    st.info("Extracting text from PDF...")
-    pdf_text = load_pdf_text_from_memory(pdf_bytes)  # ✅ fixed function
+    st.info("Extracting text from PDF…")
+    pdf_text = load_pdf_text_from_memory(pdf_bytes)
 
+    st.info("Splitting into chunks…")
     chunks = chunk_text(pdf_text)
-    st.info(f"PDF split into {len(chunks)} chunks...")
+    st.info(f"PDF split into {len(chunks)} chunks")
 
-    st.info("Embedding chunks...")
+    st.info("Generating embeddings…")
     vectors = get_embeddings(chunks, model="embedding-4o-latest")
     vectors_np = np.array(vectors, dtype=np.float32)
 
@@ -42,41 +52,47 @@ if uploaded_file:
         st.session_state["vector_store"] = vs
         st.success("Embedding & indexing complete!")
     else:
-        st.warning("No embeddings found — possibly an empty PDF or no readable text.")
+        st.warning("No embeddings created — check PDF content.")
 
-# Step 2: Ask Question
+# —————————————————————————————————————————————————————————————
+# 4) Step 2: Question & Retrieval
+# —————————————————————————————————————————————————————————————
 question = st.text_input("Ask a question about this PDF:")
-
 if question and st.session_state["vector_store"] is not None:
+    # a) Embed the question
     question_vec = get_embeddings([question], model="embedding-4o-latest")
     question_vec_np = np.array(question_vec, dtype=np.float32)
 
+    # b) Retrieve top-k chunks
     results = st.session_state["vector_store"].search(question_vec_np, k=5)
-    context_text = "\n".join([res[0] for res in results])
+    context_text = "\n\n".join([chunk for chunk, _ in results])
 
+    # c) Build the prompt
     prompt = f"""
-    You are a helpful AI assistant. Only use the following PDF context to answer:
-    {context_text}
+You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
 
-    User Question: {question}
-    """
+CONTEXT:
+{context_text}
 
-    st.info("Generating final answer from AIMLAPI...")
-    openai.api_key = st.secrets["AIMLAPI_KEY"]
+QUESTION:
+{question}
+"""
 
-    with st.spinner("Thinking..."):
+    st.info("Generating final answer…")
+    with st.spinner("Thinking…"):
         response = openai.ChatCompletion.create(
             model="gpt-4o-mini-2024-07-18",
             messages=[
-                {"role": "system", "content": "You are an AI assistant that uses PDF context."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are a RAG-based assistant. Only use the provided context."},
+                {"role": "user",   "content": prompt},
             ],
             temperature=0
         )
     answer = response.choices[0].message.content
     st.markdown(f"**Answer:** {answer}")
 
+    # d) Optionally show which chunks were used
     with st.expander("Top Relevant Chunks"):
-        for i, (chunk, dist) in enumerate(results):
-            st.write(f"**Rank {i+1}** - Distance: {dist:.2f}")
-            st.write(chunk[:300] + "...")
+        for idx, (chunk, dist) in enumerate(results, start=1):
+            st.write(f"**Rank {idx}** (distance {dist:.2f})")
+            st.write(chunk[:300].replace("\n", " ") + "…")
