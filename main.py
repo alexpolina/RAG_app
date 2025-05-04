@@ -19,7 +19,7 @@ logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ER
 tf_logging.set_verbosity_error()
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Configure AIMLAPI client once
+# Configure AIMLAPI client
 # ────────────────────────────────────────────────────────────────────────────────
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
@@ -27,7 +27,7 @@ client = OpenAI(
 )
 
 # ────────────────────────────────────────────────────────────────────────────────
-# UI: Title & Instructions
+# UI Header
 # ────────────────────────────────────────────────────────────────────────────────
 st.title("RAG Chat for Corvinus University")
 st.write("""
@@ -36,14 +36,24 @@ st.write("""
 """)
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Session state initialization
+# Initialize / migrate session state
 # ────────────────────────────────────────────────────────────────────────────────
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
+# Migrate old tuple-based chat entries to dict-based
 if "chat_history" not in st.session_state:
-    # list of dicts: {"role": "user"|"assistant", "content": str}
     st.session_state.chat_history = []
+else:
+    migrated = []
+    for entry in st.session_state.chat_history:
+        # tuple format -> dict format
+        if isinstance(entry, tuple) and len(entry) == 2:
+            migrated.append({"role": entry[0], "content": entry[1]})
+        # already dict -> keep
+        elif isinstance(entry, dict):
+            migrated.append(entry)
+    st.session_state.chat_history = migrated
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Step 1: Upload & Index PDF
@@ -77,19 +87,19 @@ if st.session_state.vector_store:
     st.markdown("---")
     st.header("2️⃣ Chat with the PDF")
 
-    # Render the conversation history
+    # Render conversation history
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # Chat form for new question
+    # Chat input form
     with st.form("chat_form", clear_on_submit=True):
         user_q = st.text_input("Your question:", "")
         submitted = st.form_submit_button("Send")
 
     if submitted and user_q:
         # Save user message
-        st.session_state.chat_history.append({"role": "user", "content": user_q})
+        st.session_state.chat_history.append({"role": "user",      "content": user_q})
 
         # Retrieve relevant chunks
         q_vec = get_embeddings([user_q], model="text-embedding-ada-002")
@@ -97,7 +107,7 @@ if st.session_state.vector_store:
         results = st.session_state.vector_store.search(q_arr, k=5)
         context = "\n\n".join(chunk for chunk, _ in results)
 
-        # Build prompt
+        # Build prompt for LLM
         prompt = f"""
 You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
 
@@ -129,7 +139,7 @@ QUESTION:
             full = out[0]["generated_text"]
             answer = full[len(fb_input):].strip()
 
-        # Save and render assistant message
+        # Save and render assistant reply
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         with st.chat_message("assistant"):
             st.write(answer)
