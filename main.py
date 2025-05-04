@@ -12,65 +12,84 @@ from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
-# ── Suppress noisy warnings ───────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Silence noisy warnings
+# ────────────────────────────────────────────────────────────────────────────────
 logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
 tf_logging.set_verbosity_error()
 
-# ── Configure AIMLAPI client ────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Configure AIMLAPI client once
+# ────────────────────────────────────────────────────────────────────────────────
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
     api_key=st.secrets["TEXT_API_KEY"],
 )
 
+# ────────────────────────────────────────────────────────────────────────────────
+# UI: Title & Instructions
+# ────────────────────────────────────────────────────────────────────────────────
 st.title("RAG Chat for Corvinus University")
-st.write("Upload a PDF and then ask as many follow-up questions as you like.")
+st.write("""
+1. Upload a PDF  
+2. Ask as many follow-up questions as you like about its contents.
+""")
 
-# ── Initialize session state ────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Session state initialization
+# ────────────────────────────────────────────────────────────────────────────────
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
 if "chat_history" not in st.session_state:
-    # list of (role, text)
+    # list of dicts: {"role": "user"|"assistant", "content": str}
     st.session_state.chat_history = []
 
-# ── Step 1: Upload & Index ───────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
+# Step 1: Upload & Index PDF
+# ────────────────────────────────────────────────────────────────────────────────
 with st.expander("1️⃣ Upload & Index PDF", expanded=True):
     uploaded = st.file_uploader("Choose a PDF", type=["pdf"])
     if uploaded is not None:
         pdf_bytes = uploaded.read()
-        st.info("Extracting and chunking text…")
+        st.info("Extracting text from PDF…")
         text = load_pdf_text_from_memory(pdf_bytes)
+
+        st.info("Splitting into chunks…")
         chunks = chunk_text(text)
-        st.info(f"Split into {len(chunks)} chunks. Creating embeddings…")
+        st.info(f"PDF split into {len(chunks)} chunks.")
+
+        st.info("Generating embeddings…")
         vectors = get_embeddings(chunks, model="text-embedding-ada-002")
         if vectors:
             arr = np.array(vectors, dtype=np.float32)
             vs = VectorStore(arr.shape[1])
             vs.add_embeddings(arr, chunks)
             st.session_state.vector_store = vs
-            st.success("PDF indexed – ready for chat!")
+            st.success("PDF indexed—ready for chat!")
         else:
-            st.error("Failed to embed; is the PDF text readable?")
+            st.error("Failed to embed PDF; please check its content.")
 
-# Only show the chat form once the PDF is indexed
+# ────────────────────────────────────────────────────────────────────────────────
+# Step 2: Chat Interface
+# ────────────────────────────────────────────────────────────────────────────────
 if st.session_state.vector_store:
     st.markdown("---")
     st.header("2️⃣ Chat with the PDF")
 
-    # Display conversation so far
-    for role, msg in st.session_state.chat_history:
-        if role == "user":
-            st.markdown(f"**You:** {msg}")
-        else:
-            st.markdown(f"**Assistant:** {msg}")
+    # Render the conversation history
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
-    # Chat form
+    # Chat form for new question
     with st.form("chat_form", clear_on_submit=True):
         user_q = st.text_input("Your question:", "")
-        send = st.form_submit_button("Send")
-    if send and user_q:
+        submitted = st.form_submit_button("Send")
+
+    if submitted and user_q:
         # Save user message
-        st.session_state.chat_history.append(("user", user_q))
+        st.session_state.chat_history.append({"role": "user", "content": user_q})
 
         # Retrieve relevant chunks
         q_vec = get_embeddings([user_q], model="text-embedding-ada-002")
@@ -79,31 +98,38 @@ if st.session_state.vector_store:
         context = "\n\n".join(chunk for chunk, _ in results)
 
         # Build prompt
-        prompt = (
-            "You are a helpful AI assistant. Use ONLY the following context:\n\n"
-            f"{context}\n\nQUESTION: {user_q}"
-        )
+        prompt = f"""
+You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
 
-        # Call AIMLAPI (with fallback)
+CONTEXT:
+{context}
+
+QUESTION:
+{user_q}
+"""
+
+        # Try AIMLAPI chat completion
         try:
             resp = client.chat.completions.create(
                 model="openai/o4-mini-2025-04-16",
                 messages=[
-                    {"role": "system", "content": "You are an AI assistant."},
-                    {"role": "user",   "content": prompt},
+                    {"role": "system",    "content": "You are an AI assistant backed by PDF context."},
+                    {"role": "user",      "content": prompt},
                 ],
                 temperature=0,
             )
             answer = resp.choices[0].message.content
 
         except PermissionDeniedError:
-            st.warning("Quota exceeded – using local gpt2-xl fallback.")
+            # Fallback to local model
+            st.warning("Quota exceeded—falling back to local gpt2-xl.")
             gen = pipeline("text-generation", model="gpt2-xl", device=-1)
-            fb_in = f"Context:\n{context}\n\nQ: {user_q}\nA:"
-            out = gen(fb_in, max_new_tokens=50, truncation=True, do_sample=False)
+            fb_input = f"Context:\n{context}\n\nQ: {user_q}\nA:"
+            out = gen(fb_input, max_new_tokens=50, truncation=True, do_sample=False)
             full = out[0]["generated_text"]
-            answer = full[len(fb_in):].strip()
+            answer = full[len(fb_input):].strip()
 
-        # Save and display
-        st.session_state.chat_history.append(("assistant", answer))
-        st.markdown(f"**Assistant:** {answer}")
+        # Save and render assistant message
+        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        with st.chat_message("assistant"):
+            st.write(answer)
