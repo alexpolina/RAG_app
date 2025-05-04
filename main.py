@@ -9,7 +9,7 @@ from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
-# Page setup
+# — Page setup —
 st.set_page_config(
     page_title="RAG Chat for Corvinus University",
     page_icon="🤖",
@@ -17,16 +17,16 @@ st.set_page_config(
 )
 st.title("RAG Chat for Corvinus University")
 
-# Custom styling: light theme, neon accents, futuristic font, narrower layout
+# — Styling: lighter theme, neon headers, tighter width —
 st.markdown("""
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap');
     .block-container {
-      padding-top: 0rem !important;
-      padding-bottom: 2rem !important;
-      max-width: 800px !important;
-      margin: auto !important;
+      padding-top: 0 !important;
+      padding-bottom: 1rem !important;
+      max-width: 640px !important;
+      margin: 0 auto !important;
     }
     body, .stApp {
       background-color: #f9f9f9;
@@ -36,33 +36,33 @@ st.markdown("""
     .step-container {
       background: #fff;
       border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 1.5rem;
-      margin-bottom: 2rem;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+      border-radius: 10px;
+      padding: 1.2rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     .step-header {
       font-family: 'Orbitron', sans-serif;
-      font-size: 1.6rem;
+      font-size: 1.5rem;
       color: #0077cc;
-      margin-bottom: 1rem;
+      margin-bottom: 0.8rem;
     }
     .stFileUploader>div {
       border: 2px dashed #ccc;
-      border-radius: 8px;
+      border-radius: 6px;
     }
     .stChatInput>div>div>input {
       background-color: #fff !important;
       border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 0.75rem;
+      border-radius: 6px;
+      padding: 0.6rem;
       color: #333;
     }
     [data-testid="stChatMessage"] {
-      border-radius: 12px !important;
-      padding: 0.75rem !important;
-      margin-bottom: 0.5rem !important;
-      max-width: 80%;
+      border-radius: 10px !important;
+      padding: 0.6rem !important;
+      margin-bottom: 0.4rem !important;
+      max-width: 75%;
     }
     [data-testid="stChatMessage"] .avatar + .message-content {
       background-color: #e6f7ff !important;
@@ -75,34 +75,35 @@ st.markdown("""
   </style>
 """, unsafe_allow_html=True)
 
-# Quiet warnings
+# quiet internal noise
 logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
 tf_logging.set_verbosity_error()
 
-# API client
+# prepare API client
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
     api_key=st.secrets["TEXT_API_KEY"],
 )
 
-# Session init and migration
+# initialize session state
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 else:
+    # convert any old tuple entries
     migrated = []
-    for e in st.session_state.chat_history:
-        if isinstance(e, tuple) and len(e) == 2:
-            migrated.append({"role": e[0], "content": e[1]})
+    for entry in st.session_state.chat_history:
+        if isinstance(entry, tuple):
+            migrated.append({"role": entry[0], "content": entry[1]})
         else:
-            migrated.append(e)
+            migrated.append(entry)
     st.session_state.chat_history = migrated
 
-# Upload & index
+# — 1️⃣ Upload & index PDF —
 st.markdown('<div class="step-container">', unsafe_allow_html=True)
 st.markdown('<div class="step-header">📄 1. Upload & Index PDF</div>', unsafe_allow_html=True)
-uploaded = st.file_uploader("Drag & drop a PDF here", type=["pdf"], help="Up to 200 MB")
+uploaded = st.file_uploader("Drag & drop a PDF or click to browse", type=["pdf"])
 if uploaded:
     pdf_bytes = uploaded.read()
     text = load_pdf_text_from_memory(pdf_bytes)
@@ -114,64 +115,57 @@ if uploaded:
         vs = VectorStore(arr.shape[1])
         vs.add_embeddings(arr, chunks)
         st.session_state.vector_store = vs
-        st.success("🚀 PDF indexed! Ready to chat.")
+        st.success("Indexed and ready to chat!")
     else:
-        st.error("Embedding failed. Is your PDF text readable?")
+        st.error("Embedding failed—check PDF content.")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Chat interface
+# — 2️⃣ Chat with the PDF —
 if st.session_state.vector_store:
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     st.markdown('<div class="step-header">💬 2. Chat with the PDF</div>', unsafe_allow_html=True)
 
-    # Display past messages
+    # show chat history
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # New question input
-    user_q = st.chat_input("Type your question…")
-    if user_q:
-        # Record user message
-        st.session_state.chat_history.append({"role": "user", "content": user_q})
+    # input and respond
+    question = st.chat_input("Type your question here…")
+    if question:
+        st.session_state.chat_history.append({"role": "user", "content": question})
         with st.chat_message("user"):
-            st.write(user_q)
+            st.write(question)
 
-        # Embed and retrieve
-        q_vec = get_embeddings([user_q], model="text-embedding-ada-002")
-        arr = np.array(q_vec, dtype=np.float32)
-        results = st.session_state.vector_store.search(arr, k=5)
+        q_vec = get_embeddings([question], model="text-embedding-ada-002")
+        q_arr = np.array(q_vec, dtype=np.float32)
+        results = st.session_state.vector_store.search(q_arr, k=5)
         context = "\n\n".join(chunk for chunk, _ in results)
 
-        # Build and send prompt
-        prompt = f"""
-Use ONLY the following context to answer:
+        prompt = f"""You are a helpful AI assistant. Use ONLY the context below to answer:
 
 {context}
 
 QUESTION:
-{user_q}
+{question}
 """
         try:
             resp = client.chat.completions.create(
                 model="openai/o4-mini-2025-04-16",
                 messages=[
-                    {"role": "system", "content": "You are an AI assistant using PDF context."},
+                    {"role": "system", "content": "Use the provided PDF context only."},
                     {"role": "user",   "content": prompt},
                 ],
                 temperature=0,
             )
             answer = resp.choices[0].message.content
-
         except PermissionDeniedError:
-            st.warning("Quota reached—falling back to local gpt2-xl.")
             gen = pipeline("text-generation", model="gpt2-xl", device=-1)
-            fb = f"Context:\n{context}\n\nQ: {user_q}\nA:"
+            fb = f"Context:\n{context}\n\nQ: {question}\nA:"
             out = gen(fb, max_new_tokens=50, truncation=True, do_sample=False)
             full = out[0]["generated_text"]
             answer = full[len(fb):].strip()
 
-        # Record assistant message
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         with st.chat_message("assistant"):
             st.write(answer)
