@@ -5,23 +5,26 @@ import streamlit as st
 import numpy as np
 
 from openai import OpenAI, PermissionDeniedError
-from transformers import pipeline, logging as tf_logging
+
+# <-- Changed import from transformers.pipelines -->
+from transformers.pipelines import pipeline
+from transformers import logging as tf_logging
 
 from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
-# ─── Silence unnecessary warnings ──────────────────────────────────────────────
+# ── Silence warnings ─────────────────────────────────────────────────────────────
 logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
 tf_logging.set_verbosity_error()
 
-# ─── Configure AIMLAPI client using your Streamlit secret ─────────────────────
+# ── Configure AIMLAPI client ─────────────────────────────────────────────────────
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
     api_key=st.secrets["TEXT_API_KEY"],
 )
 
-# ─── UI: Title & Instructions ─────────────────────────────────────────────────
+# ── UI: Title ─────────────────────────────────────────────────────────────────────
 st.title("RAG System for Corvinus University")
 st.write("""
 1. Upload a PDF  
@@ -29,11 +32,11 @@ st.write("""
 3. We'll help you find an answer based on the uploaded material.
 """)
 
-# Initialize (or retrieve) the vector store in session state
+# Store vector index in session
 if "vector_store" not in st.session_state:
     st.session_state["vector_store"] = None
 
-# ─── Step 1: Upload & Index PDF ────────────────────────────────────────────────
+# ── Step 1: Upload & index PDF ────────────────────────────────────────────────────
 uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
 if uploaded_file:
     pdf_bytes = uploaded_file.read()
@@ -49,74 +52,53 @@ if uploaded_file:
     vectors_np = np.array(vectors, dtype=np.float32)
 
     if vectors:
-        dim = vectors_np.shape[1]
-        vs = VectorStore(dim)
+        vs = VectorStore(vectors_np.shape[1])
         vs.add_embeddings(vectors_np, chunks)
         st.session_state["vector_store"] = vs
         st.success("Embedding & indexing complete!")
     else:
-        st.warning("No embeddings created — make sure the PDF has readable text.")
+        st.warning("No embeddings created — please check the PDF content.")
 
-# ─── Step 2: Ask a Question & Retrieve Answer ─────────────────────────────────
+# ── Step 2: Ask & answer ─────────────────────────────────────────────────────────
 question = st.text_input("Ask a question about this PDF:")
 if question and st.session_state["vector_store"]:
-    # a) Embed the question
-    question_vec = get_embeddings([question], model="text-embedding-ada-002")
-    question_vec_np = np.array(question_vec, dtype=np.float32)
+    q_vec = get_embeddings([question], model="text-embedding-ada-002")
+    q_np  = np.array(q_vec, dtype=np.float32)
 
-    # b) Retrieve the top-k most relevant chunks
-    results = st.session_state["vector_store"].search(question_vec_np, k=5)
-    context_text = "\n\n".join(chunk for chunk, _ in results)
+    # retrieve
+    results = st.session_state["vector_store"].search(q_np, k=5)
+    context = "\n\n".join(chunk for chunk, _ in results)
 
-    # c) Build the prompt for the LLM
     prompt = f"""
-You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
+You are a helpful AI assistant. Use ONLY the following context:
 
-CONTEXT:
-{context_text}
+{context}
 
-QUESTION:
-{question}
+Question: {question}
 """
 
-    st.info("Generating final answer…")
-
+    st.info("Generating answer…")
     try:
-        # Primary: AIMLAPI chat completion (GPT-4-mini)
-        response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model="openai/o4-mini-2025-04-16",
             messages=[
-                {"role": "system", "content": "You are an AI assistant that uses PDF context."},
-                {"role": "user",   "content": prompt},
+                {"role":"system", "content":"Use only the context."},
+                {"role":"user",   "content":prompt},
             ],
             temperature=0,
         )
-        answer = response.choices[0].message.content
+        answer = resp.choices[0].message.content
 
     except PermissionDeniedError:
-        # Fallback: local generation with a larger open-source model
-        st.warning("AIMLAPI quota exceeded; falling back to local model (gpt2-xl).")
-        gen = pipeline(
-            "text-generation",
-            model="gpt2-xl",
-            device=-1           # -1 = CPU
-        )
-        # Prepare prompt + question for local model
-        fallback_input = f"Context:\n{context_text}\n\nQ: {question}\nA:"
-        out = gen(
-            fallback_input,
-            max_new_tokens=50,  # generate up to 50 new tokens
-            truncation=True,    # allow input truncation
-            do_sample=False     # deterministic
-        )
+        st.warning("Quota hit – using local model fallback (gpt2-xl).")
+        gen = pipeline("text-generation", model="gpt2-xl", device=-1)
+        fb_input = f"Context:\n{context}\n\nQ: {question}\nA:"
+        out = gen(fb_input, max_new_tokens=50, truncation=True, do_sample=False)
         full = out[0]["generated_text"]
-        answer = full[len(fallback_input):].strip()
+        answer = full[len(fb_input):].strip()
 
-    # d) Display the answer
     st.markdown(f"**Answer:** {answer}")
 
-    # e) Show which chunks were used
-    with st.expander("Top Relevant Chunks"):
-        for idx, (chunk, dist) in enumerate(results, start=1):
-            st.write(f"**Rank {idx}** (distance {dist:.2f})")
-            st.write(chunk[:300].replace("\n", " ") + "…")
+    with st.expander("Relevant Chunks"):
+        for i, (chunk, dist) in enumerate(results, 1):
+            st.write(f"**{i}.** (dist {dist:.2f}) {chunk[:200]}…")
