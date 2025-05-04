@@ -9,7 +9,7 @@ from pdf_loader import load_pdf_text_from_memory, chunk_text
 from embeddings import get_embeddings
 from vector_store import VectorStore
 
-# — Page setup —
+# ─── Page setup ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="RAG Chat for Corvinus University",
     page_icon="🤖",
@@ -17,15 +17,15 @@ st.set_page_config(
 )
 st.title("RAG Chat for Corvinus University")
 
-# — Styling: lighter theme, neon headers, tighter width —
+# ─── Custom CSS: light theme, neon headers, moderate width ────────────────────
 st.markdown("""
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap');
+    /* Center content, add top padding, cap width */
     .block-container {
-      padding-top: 0 !important;
-      padding-bottom: 1rem !important;
-      max-width: 640px !important;
+      padding: 2rem 1rem !important;
+      max-width: 900px !important;
       margin: 0 auto !important;
     }
     body, .stApp {
@@ -75,35 +75,37 @@ st.markdown("""
   </style>
 """, unsafe_allow_html=True)
 
-# quiet internal noise
+# ─── Silence warnings ──────────────────────────────────────────────────────────
 logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
 tf_logging.set_verbosity_error()
 
-# prepare API client
+# ─── AIMLAPI client ───────────────────────────────────────────────────────────
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
     api_key=st.secrets["TEXT_API_KEY"],
 )
 
-# initialize session state
+# ─── Session state init ───────────────────────────────────────────────────────
+
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 else:
-    # convert any old tuple entries
+    # convert old tuple entries if any
     migrated = []
-    for entry in st.session_state.chat_history:
-        if isinstance(entry, tuple):
-            migrated.append({"role": entry[0], "content": entry[1]})
+    for e in st.session_state.chat_history:
+        if isinstance(e, tuple) and len(e) == 2:
+            migrated.append({"role": e[0], "content": e[1]})
         else:
-            migrated.append(entry)
+            migrated.append(e)
     st.session_state.chat_history = migrated
 
-# — 1️⃣ Upload & index PDF —
+# ─── 1️⃣ Upload & Index PDF ───────────────────────────────────────────────────
 st.markdown('<div class="step-container">', unsafe_allow_html=True)
 st.markdown('<div class="step-header">📄 1. Upload & Index PDF</div>', unsafe_allow_html=True)
-uploaded = st.file_uploader("Drag & drop a PDF or click to browse", type=["pdf"])
+
+uploaded = st.file_uploader("Drag & drop a PDF here (or click to browse)", type=["pdf"])
 if uploaded:
     pdf_bytes = uploaded.read()
     text = load_pdf_text_from_memory(pdf_bytes)
@@ -115,34 +117,35 @@ if uploaded:
         vs = VectorStore(arr.shape[1])
         vs.add_embeddings(arr, chunks)
         st.session_state.vector_store = vs
-        st.success("Indexed and ready to chat!")
+        st.success("Indexed! You can now chat below.")
     else:
-        st.error("Embedding failed—check PDF content.")
+        st.error("Embedding failed—please check the PDF content.")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# — 2️⃣ Chat with the PDF —
+# ─── 2️⃣ Chat with the PDF ─────────────────────────────────────────────────────
 if st.session_state.vector_store:
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     st.markdown('<div class="step-header">💬 2. Chat with the PDF</div>', unsafe_allow_html=True)
 
-    # show chat history
+    # show previous messages
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # input and respond
-    question = st.chat_input("Type your question here…")
+    # ask a new question
+    question = st.chat_input("Type your question…")
     if question:
         st.session_state.chat_history.append({"role": "user", "content": question})
         with st.chat_message("user"):
             st.write(question)
 
+        # retrieve context
         q_vec = get_embeddings([question], model="text-embedding-ada-002")
-        q_arr = np.array(q_vec, dtype=np.float32)
-        results = st.session_state.vector_store.search(q_arr, k=5)
+        arr = np.array(q_vec, dtype=np.float32)
+        results = st.session_state.vector_store.search(arr, k=5)
         context = "\n\n".join(chunk for chunk, _ in results)
 
-        prompt = f"""You are a helpful AI assistant. Use ONLY the context below to answer:
+        prompt = f"""You are a helpful AI assistant. Use ONLY the context below:
 
 {context}
 
