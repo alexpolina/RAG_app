@@ -19,7 +19,7 @@ logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ER
 tf_logging.set_verbosity_error()
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Configure AIMLAPI client
+# Configure AIMLAPI client once
 # ────────────────────────────────────────────────────────────────────────────────
 client = OpenAI(
     base_url="https://api.aimlapi.com/v1",
@@ -30,7 +30,7 @@ client = OpenAI(
 # Page header
 # ────────────────────────────────────────────────────────────────────────────────
 st.title("RAG Chat for Corvinus University")
-st.write("1. Upload a PDF  \n2. Ask as many follow-up questions as you like.")
+st.write("Upload a PDF, then chat with it. Press Enter to send each question.")
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Session state init & migration
@@ -41,7 +41,7 @@ if "vector_store" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 else:
-    # migrate old tuple entries to dicts (if any)
+    # Migrate old tuple entries, if any
     migrated = []
     for e in st.session_state.chat_history:
         if isinstance(e, tuple) and len(e) == 2:
@@ -76,22 +76,24 @@ with st.expander("1️⃣ Upload & Index PDF", expanded=True):
             st.error("No embeddings – is the PDF text readable?")
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Step 2: Chat Interface
+# Step 2: Chat with chat_input + chat_message
 # ────────────────────────────────────────────────────────────────────────────────
 if st.session_state.vector_store:
     st.markdown("---")
     st.header("2️⃣ Chat with the PDF")
 
-    # 1) Render previous messages
+    # 1) Render past messages
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # 2) Get user input via the new chat_input box
+    # 2) Get new question (Enter to send)
     user_q = st.chat_input("Your question:")
     if user_q:
-        # a) Save the user’s message
+        # a) Save user message
         st.session_state.chat_history.append({"role": "user", "content": user_q})
+        with st.chat_message("user"):
+            st.write(user_q)
 
         # b) Retrieve relevant chunks
         q_vec = get_embeddings([user_q], model="text-embedding-ada-002")
@@ -99,7 +101,7 @@ if st.session_state.vector_store:
         results = st.session_state.vector_store.search(q_arr, k=5)
         context = "\n\n".join(chunk for chunk, _ in results)
 
-        # c) Build the LLM prompt
+        # c) Build prompt
         prompt = f"""
 You are a helpful AI assistant. Use ONLY the following context to answer the user's question.
 
@@ -110,12 +112,14 @@ QUESTION:
 {user_q}
 """
 
-        # d) Call AIMLAPI chat (with fallback)
+        st.info("Generating answer…")
+
+        # d) Call AIMLAPI (with fallback)
         try:
             resp = client.chat.completions.create(
                 model="openai/o4-mini-2025-04-16",
                 messages=[
-                    {"role": "system", "content": "You are an AI assistant using PDF context."},
+                    {"role": "system", "content": "You are an AI assistant backed by PDF context."},
                     {"role": "user",   "content": prompt},
                 ],
                 temperature=0,
@@ -128,4 +132,9 @@ QUESTION:
             fb = f"Context:\n{context}\n\nQ: {user_q}\nA:"
             out = gen(fb, max_new_tokens=50, truncation=True, do_sample=False)
             full = out[0]["generated_text"]
-            answer = full
+            answer = full[len(fb):].strip()
+
+        # e) Save and render assistant message immediately below
+        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        with st.chat_message("assistant"):
+            st.write(answer)
