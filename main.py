@@ -22,60 +22,65 @@ st.set_page_config(
 )
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Custom CSS: dark theme, neon accents, futuristic font
+# Custom CSS: light theme, neon accents, futuristic font
 # ────────────────────────────────────────────────────────────────────────────────
 st.markdown("""
   <style>
-    /* Import futuristic font from Google */
+    /* Import futuristic fonts */
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap');
 
-    /* Base styles */
+    /* Light background & base text */
     body, .stApp {
-      background-color: #0a0a0a;
-      color: #e0e0e0;
+      background-color: #f9f9f9;
+      color: #333333;
       font-family: 'Roboto Mono', monospace;
     }
-    /* Step containers */
+    /* Step container styling */
     .step-container {
-      background: linear-gradient(135deg, #111111 0%, #1e1e1e 100%);
-      border: 1px solid #222222;
+      background: #ffffff;
+      border: 1px solid #dddddd;
       border-radius: 12px;
       padding: 1.5rem;
       margin-bottom: 2rem;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.05);
     }
     /* Step headers */
     .step-header {
       font-family: 'Orbitron', sans-serif;
       font-size: 1.6rem;
-      color: #00f6ff;
+      color: #0077cc;
       margin-bottom: 1rem;
     }
     /* File uploader box */
     .stFileUploader>div {
-      border: 2px dashed #333333;
+      border: 2px dashed #cccccc;
       border-radius: 8px;
     }
     /* Chat input style */
     .stChatInput>div>div>input {
-      background-color: #1e1e1e !important;
-      border: 1px solid #333333;
+      background-color: #ffffff !important;
+      border: 1px solid #cccccc;
       border-radius: 8px;
       padding: 0.75rem;
-      color: #e0e0e0;
+      color: #333333;
     }
     /* Chat bubbles */
     [data-testid="stChatMessage"] {
       border-radius: 12px !important;
       padding: 0.75rem !important;
       margin-bottom: 0.5rem !important;
+      max-width: 80%;
     }
-    /* User vs Assistant bubble colors */
-    [data-testid="stChatMessage"] .message-content:has(+ .avatar) {
-      background-color: #022b3a !important;  /* user bubble */
+    /* User bubble */
+    [data-testid="stChatMessage"] .avatar + .message-content {
+      background-color: #e6f7ff !important;
+      border: 1px solid #99d6ff !important;
     }
+    /* Assistant bubble */
     [data-testid="stChatMessage"] .message-content {
-      background-color: #004e64 !important;  /* assistant bubble */
+      background-color: #f0f0f0 !important;
+      border: 1px solid #dddddd !important;
     }
   </style>
 """, unsafe_allow_html=True)
@@ -112,7 +117,7 @@ else:
     st.session_state.chat_history = migrated
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Step 1: Upload & Index PDF (stacked)
+# Step 1: Upload & Index PDF
 # ────────────────────────────────────────────────────────────────────────────────
 st.markdown('<div class="step-container">', unsafe_allow_html=True)
 st.markdown('<div class="step-header">📄 1. Upload & Index PDF</div>', unsafe_allow_html=True)
@@ -136,12 +141,12 @@ if uploaded:
         st.session_state.vector_store = vs
         st.success("🚀 Indexed and ready to chat!")
     else:
-        st.error("❌ Embedding failed. Is the PDF text readable?")
+        st.error("❌ Embedding failed — check PDF content.")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ────────────────────────────────────────────────────────────────────────────────
-# Step 2: Chat with the PDF (stacked)
+# Step 2: Chat with the PDF
 # ────────────────────────────────────────────────────────────────────────────────
 if st.session_state.vector_store:
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
@@ -167,8 +172,9 @@ if st.session_state.vector_store:
         context = "\n\n".join(chunk for chunk, _ in results)
 
         prompt = f"""
-You are a helpful AI assistant. Use ONLY the following context to answer:
+You are a helpful AI assistant. Use ONLY the following context to answer the question.
 
+CONTEXT:
 {context}
 
 QUESTION:
@@ -180,7 +186,7 @@ QUESTION:
             resp = client.chat.completions.create(
                 model="openai/o4-mini-2025-04-16",
                 messages=[
-                    {"role": "system", "content": "You are an AI assistant that uses PDF context."},
+                    {"role": "system", "content": "You are an AI assistant powered by PDF context."},
                     {"role": "user",   "content": prompt},
                 ],
                 temperature=0,
