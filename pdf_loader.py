@@ -1,10 +1,10 @@
 # pdf_loader.py
 import pypdf
-from io import BytesIO  # 🔧 needed to wrap bytes into a file-like object
+from io import BytesIO  
 
 def load_pdf_text_from_memory(pdf_bytes: bytes) -> str:
     """Extracts text from an in-memory PDF using pypdf."""
-    pdf_stream = BytesIO(pdf_bytes)  # ✅ convert bytes to file-like object
+    pdf_stream = BytesIO(pdf_bytes)  
     reader = pypdf.PdfReader(pdf_stream)
 
     text_chunks = []
